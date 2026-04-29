@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hybrid Chat (Client-Server & P2P)</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; margin: 0; height: 100vh; background: #f0f2f5;}
+        .sidebar { width: 250px; background: #2c3e50; color: white; padding: 20px; }
+        .channel-list { list-style: none; padding: 0; }
+        .channel-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #34495e; }
+        .channel-item:hover, .channel-item.active { background: #1abc9c; }
+        .chat-area { flex-grow: 1; display: flex; flex-direction: column; padding: 20px; }
+        .messages { flex-grow: 1; background: white; border-radius: 8px; padding: 15px; overflow-y: scroll; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
+        .msg-box { margin-bottom: 10px; padding: 10px; border-radius: 8px; background: #e9ecef; }
+        .msg-box.me { background: #dcf8c6; text-align: right; }
+        .input-area { display: flex; gap: 10px; }
+        input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h3>Quản lý Kênh</h3>
+        <ul class="channel-list" id="channels">
+            <li class="channel-item active" onclick="switchChannel('general', this)"># general</li>
+            <li class="channel-item" onclick="switchChannel('hcmut', this)"># hcmut</li>
+        </ul>
+        <hr>
+        <input type="text" id="username" placeholder="Tên của bạn..." value="User1" style="width: 90%; margin-top: 20px;">
+    </div>
+
+    <div class="chat-area">
+        <h2 id="current-channel-title">Kênh: #general</h2>
+        <div class="messages" id="message-container"></div>
+        <div class="input-area">
+            <input type="text" id="msg-input" placeholder="Nhập tin nhắn (Không thể sửa/xóa)...">
+            <button onclick="sendBroadcast()">Gửi (Broadcast)</button>
+        </div>
+    </div>
+
+    <script>
+        let currentChannel = 'general';
+        let lastMessageCount = 0;
+
+        function switchChannel(channelName, element) {
+            currentChannel = channelName;
+            document.getElementById('current-channel-title').innerText = `Kênh: #${channelName}`;
+            document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+            if(element) element.classList.add('active');
+            lastMessageCount = 0;
+            fetchMessages(); 
+        }
+
+        async function sendBroadcast() {
+            const user = document.getElementById('username').value || "Ẩn danh";
+            const text = document.getElementById('msg-input').value;
+            if (!text.trim()) return;
+
+            const payload = { sender: user, text: text, channel: currentChannel };
+            try {
+                await fetch("/broadcast-peer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                document.getElementById('msg-input').value = "";
+                fetchMessages();
+            } catch (error) {
+                console.error("Lỗi khi gửi:", error);
+            }
+        }
+
+        document.getElementById("msg-input").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendBroadcast();
+            }
+        });
+
+        async function fetchMessages() {
+            try {
+                const response = await fetch("/get-messages", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ channel: currentChannel })
+                });
+                const data = await response.json();
+                const container = document.getElementById("message-container");
+                const username = document.getElementById('username').value;
+                
+                if (data.messages.length === lastMessageCount) return; 
+
+                container.innerHTML = "";
+                data.messages.forEach(msg => {
+                    const isMe = msg.sender === username ? "me" : "";
+                    container.innerHTML += `<div class="msg-box ${isMe}"><b>${msg.sender}</b>: ${msg.text}</div>`;
+                });
+
+                lastMessageCount = data.messages.length;
+                container.scrollTop = container.scrollHeight; 
+            } catch (error) {
+                console.error("Lỗi đồng bộ:", error);
+            }
+        }
+
+        setInterval(fetchMessages, 2000);
+    </script>
+</body>
+</html>
