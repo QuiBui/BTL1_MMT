@@ -54,9 +54,9 @@ from .dictionary import CaseInsensitiveDict
 import selectors
 sel = selectors.DefaultSelector()
 
-mode_async = "callback"
-#mode_async = "coroutine"
-mode_async = "threading"
+#mode_async = "callback"
+mode_async = "coroutine"
+#mode_async = "threading"
 
 def handle_client(ip, port, conn, addr, routes):
     """
@@ -93,21 +93,22 @@ def handle_client_callback(server, ip, port,conn, addr, routes):
 
 
 # Coroutine async/await for handling new client
-async def handle_client_coroutine(reader, writer):
-    """
-    Coroutine in async communication to initialize connection instance
-    then delegates the client handling logic to it.
-
-    :param reader (StreamReader): Stream reader wrapper.
-    :param write (Stream write): Stream write wrapper.
-    """
+# Sửa lại hàm này để nhận thêm tham số routes
+async def handle_client_coroutine(reader, writer, routes):
     addr = writer.get_extra_info("peername")
     print("[Backend] Invoke handle_client_coroutine accepted connection from {}".format(addr))
 
     # Handle client in asynchronous mode
     while True:
-          daemon = HttpAdapter(None, None, None, None, None)
-          await daemon.handle_client_coroutine(reader, writer)
+          # Truyền routes vào đây (Code cũ bạn đang để None)
+          daemon = HttpAdapter(None, None, None, None, routes)
+          
+          # Nhận cờ keep_alive từ httpadapter
+          keep_alive = await daemon.handle_client_coroutine(reader, writer)
+          
+          # Nếu Client ngắt kết nối (False), thoát vòng lặp vô hạn
+          if not keep_alive:
+              break
 
 async def async_server(ip="0.0.0.0", port=7000, routes={}):
     print("[Backend] async_server **ASYNC** listening on port {}".format(port))
@@ -119,7 +120,12 @@ async def async_server(ip="0.0.0.0", port=7000, routes={}):
                isCoFunc += "**ASYNC** "
             print("   + ('{}', '{}'): {}{}".format(key[0], key[1], isCoFunc, str(value)))
 
-    async_server = await asyncio.start_server(handle_client_coroutine, ip, port)
+    # Tạo một hàm bọc (wrapper) để truyền được routes xuống handler
+    async def client_handler(reader, writer):
+        await handle_client_coroutine(reader, writer, routes)
+
+    # Sử dụng hàm bọc ở trên thay vì gọi trực tiếp
+    async_server = await asyncio.start_server(client_handler, ip, port)
     async with async_server:
         await async_server.serve_forever()
     return
