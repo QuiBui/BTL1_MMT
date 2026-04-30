@@ -128,45 +128,43 @@ class HttpAdapter:
         conn.close()
 
     async def handle_client_coroutine(self, reader, writer):
-        """
-        Handle an incoming client connection using stream reader writer asynchronously.
-
-        This method reads the request from the socket, prepares the request object,
-        invokes the appropriate route handler if available, builds the response,
-        and sends it back to the client.
-
-        :param conn (socket): The client socket connection.
-        :param addr (tuple): The client's address.
-        :param routes (dict): The route mapping for dispatching requests.
-        """
         # Request handler
         req = self.request
         # Response handler
         resp = self.response
 
-        print("[HttpAdapter] Invoke handle_client_coroutine connection {})".format(addr))
         addr = writer.get_extra_info("peername")
+        print("[HttpAdapter] Invoke handle_client_coroutine connection {})".format(addr))
 
-        # TODO Handle the request asynchronously
+        # 1. Đọc dữ liệu. Nếu nhận chuỗi rỗng (Client ngắt mạng) -> Đóng kết nối
         msg = await reader.read(1024)
+        if not msg:
+            writer.close()
+            return False
 
+        # 2. Truyền self.routes thay vì routes={} như code cũ
+        req.prepare(msg.decode("utf-8"), routes=self.routes)
 
-        req.prepare(msg.decode("utf-8"), routes={})
+        # 3. Chặn lỗi Request không hợp lệ (path = None)
+        if not req.path:
+            writer.close()
+            return False
 
         # Handle request hook
+        envelop_content = None
         if req.hook:
-            #
-            # TODO: handle for App hook here
-            #
-            response = ""
+            user_auth = req.cookies.get('session_id', 'guest')
+            envelop_content = await req.hook(headers=user_auth, body=req.body)
 
         # Build response
-        #print("[HttpAdapter] Start **ASYNC** build_response with type {}".format(type(req)))
-        response = resp.build_response(req)
+        response = resp.build_response(req, envelop_content)
 
         # Send all the response asynchronously
+         
         writer.write(response)
         await writer.drain()
+        writer.close()
+        return False
 
     @property
     def extract_cookies(self, req, resp):

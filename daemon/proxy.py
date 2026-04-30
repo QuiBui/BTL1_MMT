@@ -120,7 +120,6 @@ def resolve_routing_policy(hostname, routes):
 
     return proxy_host, proxy_port
 
-def handle_client(ip, port, conn, addr, routes):
     """
     Handles an individual client connection by parsing the request,
     determining the target backend, and forwarding the request.
@@ -139,37 +138,46 @@ def handle_client(ip, port, conn, addr, routes):
     :params routes (dict): dictionary mapping hostnames and location.
     """
 
-    request = conn.recv(1024).decode()
-
-    # Extract hostname
-    for line in request.splitlines():
-        if line.lower().startswith('host:'):
-            hostname = line.split(':', 1)[1].strip()
-
-    print("[Proxy] {} at Host: {}".format(addr, hostname))
-
-    # Resolve the matching destination in routes and need conver port
-    # to integer value
-    resolved_host, resolved_port = resolve_routing_policy(hostname, routes)
+def handle_client(ip, port, conn, addr, routes):
     try:
-        resolved_port = int(resolved_port)
-    except ValueError:
-        print("Not a valid integer")
-
-    if resolved_host:
-        print("[Proxy] Host name {} is forwarded to {}:{}".format(hostname,resolved_host, resolved_port))
-        response = forward_request(resolved_host, resolved_port, request)        
-    else:
-        response = (
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 13\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-            "404 Not Found"
-        ).encode('utf-8')
-    conn.sendall(response)
-    conn.close()
+        request = conn.recv(1024).decode()
+        # Nếu request rỗng thì đóng kết nối ngay
+        if not request:
+            conn.close()
+            return
+            
+        hostname = "127.0.0.1:8080" # Giá trị mặc định chống lỗi
+        for line in request.splitlines():
+            if line.lower().startswith('host:'):
+                hostname = line.split(':', 1)[1].strip()
+                break # Tìm thấy host thì dừng vòng lặp
+                
+        print("[Proxy] {} at Host: {}".format(addr, hostname))
+        
+        resolved_host, resolved_port = resolve_routing_policy(hostname, routes)
+        try:
+            resolved_port = int(resolved_port)
+        except ValueError:
+            print("Not a valid integer")
+            
+        if resolved_host:
+            print("[Proxy] Host name {} is forwarded to {}:{}".format(hostname, resolved_host, resolved_port))
+            response = forward_request(resolved_host, resolved_port, request)
+        else:
+            response = (
+                "HTTP/1.1 404 Not Found\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 13\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "404 Not Found"
+            ).encode('utf-8')
+            
+        conn.sendall(response)
+    except Exception as e:
+        print(f"[Proxy Error] {e}")
+    finally:
+        conn.close()
 
 def run_proxy(ip, port, routes):
     """
