@@ -1,22 +1,29 @@
 import json
-from daemon import AsynapRous
+from daemon.asynaprous import AsynapRous
 
-app = AsynapRous()
-active_peers = [] # Chỉ Tracker mới giữ biến này
+app = AsynapRous() 
+active_peers = {} 
 
 @app.route('/submit-info', methods=['POST'])
-async def submit_info(headers, body):
+async def submit_info(headers="guest", body=""):
     try:
-        peer = json.loads(body)
-        if peer not in active_peers:
-            active_peers.append(peer)
-            print(f"[Tracker] Peer mới tham gia: {peer['ip']}:{peer['port']}")
+        peer_data = json.loads(body)
+        username = peer_data.get("username")
+        
+        if not username:
+            return json.dumps({"status": "error"}).encode("utf-8")
+            
+        active_peers[username] = {
+            "ip": peer_data.get("ip"),
+            "port": peer_data.get("port")
+        }
+        print(f"[Tracker] Peer báo danh: {username} tại {peer_data['ip']}:{peer_data['port']}")
         return json.dumps({"status": "success"}).encode("utf-8")
     except Exception as e:
         return json.dumps({"error": str(e)}).encode("utf-8")
 
 @app.route('/get-list', methods=['GET'])
-async def get_list(headers, body):
+async def get_list(headers="guest", body=""):
     return json.dumps({"peers": active_peers}).encode("utf-8")
 
 def create_trackerapp(ip, port):

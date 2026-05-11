@@ -1,206 +1,332 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Hybrid Chat (Client-Server & P2P)</title>
+    <title>P2P Chat</title>
     <style>
-        body { font-family: Arial, sans-serif; display: flex; margin: 0; height: 100vh; background: #f0f2f5;}
-        .sidebar { width: 250px; background: #2c3e50; color: white; padding: 20px; }
-        .channel-list { list-style: none; padding: 0; }
-        .channel-item { 
-            display: flex; 
-            align-items: center; 
-            padding: 10px; 
-            cursor: pointer; 
-            border-bottom: 1px solid #34495e; 
-        }
-        .channel-item:hover, .channel-item.active { background: #1abc9c; }
-        
-        /* Chấm đỏ thông báo */
-        .notification-dot {
-            display: none; /* Mặc định ẩn */
-            width: 10px;
-            height: 10px;
-            background-color: #e74c3c;
-            border-radius: 50%;
-            margin-left: auto; /* Đẩy sang góc phải */
-        }
-
-        .chat-area { flex-grow: 1; display: flex; flex-direction: column; padding: 20px; }
-        .messages { flex-grow: 1; background: white; border-radius: 8px; padding: 15px; overflow-y: scroll; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
-        .msg-box { margin-bottom: 10px; padding: 10px; border-radius: 8px; background: #e9ecef; }
-        .msg-box.me { background: #dcf8c6; text-align: right; }
-        .input-area { display: flex; gap: 10px; }
-        input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        body { margin: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; background: #e5ddd5; }
+        .sidebar { width: 260px; background: white; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 15px; background: #007bff; color: white; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-header button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; }
+        .peer-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
+        .peer-item { padding: 15px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; align-items: center; }
+        .peer-item:hover { background: #f9f9f9; }
+        .peer-item.active { background: #e9ecef; border-left: 4px solid #007bff; font-weight: bold; }
+        .status-dot { width: 10px; height: 10px; background: #28a745; border-radius: 50%; margin-right: 10px; }
+        .chat-area { flex: 1; display: flex; flex-direction: column; background: #efeae2; }
+        .chat-header { padding: 15px 20px; background: white; border-bottom: 1px solid #ccc; font-weight: bold; font-size: 16px; }
+        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { max-width: 60%; padding: 10px 15px; border-radius: 8px; word-wrap: break-word; line-height: 1.4; position: relative; }
+        .msg.sent { background: #dcf8c6; align-self: flex-end; border-bottom-right-radius: 0; }
+        .msg.recv { background: white; align-self: flex-start; border-bottom-left-radius: 0; }
+        .input-area { padding: 15px 20px; background: #f0f0f0; display: flex; gap: 10px; align-items: center; }
+        .input-area input { flex: 1; padding: 12px 15px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 14px; }
+        .input-area button { padding: 10px 25px; background: #007bff; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        .input-area button:disabled { background: #ccc; cursor: not-allowed; }
+        .sender-name { font-size: 11px; color: #555; display: block; margin-bottom: 3px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h3>Quản lý Kênh</h3>
-        <ul class="channel-list" id="channels">
-            <li class="channel-item active" id="btn-general" onclick="switchChannel('general', this)">
-                # general <span class="notification-dot"></span>
-            </li>
-            <li class="channel-item" id="btn-hcmut" onclick="switchChannel('hcmut', this)">
-                # hcmut <span class="notification-dot"></span>
+        <div class="sidebar-header">
+            <span id="my-username">Đang tải...</span>
+            <button onclick="logout()">Thoát</button>
+        </div>
+        <ul class="peer-list" id="peer-list">
+            <li class="peer-item" id="global-room" onclick="selectGroupChat()">
+                <div class="status-dot" style="background:#007bff"></div>
+                <strong># Kênh Chung</strong>
             </li>
         </ul>
-        <hr>
-        <input type="text" id="username" placeholder="Tên..." value="User1" style="width: 90%; margin-top: 20px;" readonly>
     </div>
 
     <div class="chat-area">
-        <h2 id="current-channel-title">Kênh: #general</h2>
-        <div class="messages" id="message-container"></div>
+        <div class="chat-header" id="chat-title">Chọn một người bên trái để bắt đầu chat</div>
+        <div class="messages" id="messages-container"></div>
         <div class="input-area">
-            <input type="text" id="msg-input" placeholder="Nhập tin nhắn (Không thể sửa/xóa)...">
-            <button onclick="sendBroadcast()">Gửi (Broadcast)</button>
+            <input type="text" id="msg-input" placeholder="Nhập tin nhắn..." disabled>
+            <button id="send-btn" disabled>Gửi</button>
         </div>
     </div>
 
     <script>
-        const savedName = localStorage.getItem("chat_username");
-        if (savedName) document.getElementById('username').value = savedName;
+        let myUsername = "";
+        let currentTargetPeer = null;
+        let peersData = {};
+        let isGroupMode = false;
+        
+        // --- QUẢN LÝ THÔNG BÁO THÔNG MINH ---
+        let readMessageCounts = { 'global': 0 };
+        let hasNewMessage = { 'global': false };
 
-        let currentChannel = 'general';
-        let lastMessageCount = 0;
-        let knownMessageCounts = { 'general': 0, 'hcmut': 0 };
-
-        function switchChannel(channelName, element) {
-            currentChannel = channelName;
-            document.getElementById('current-channel-title').innerText = `Kênh: #${channelName}`;
-            
-            // Tắt dấu chấm thông báo khi click vào kênh
-            if(element) {
-                const dot = element.querySelector('.notification-dot');
-                if(dot) dot.style.display = "none";
-            }
-            
-            // Cập nhật giao diện đang chọn
-            document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
-            if(element) element.classList.add('active');
-            
-            // Xoá trắng giao diện chat ngay lập tức khi đổi kênh
-            document.getElementById("message-container").innerHTML = "";
-            lastMessageCount = -1; 
-            
-            fetchMessages();
-        }
-
-        async function sendBroadcast() {
-            const user = document.getElementById('username').value || "Ẩn danh";
-            const text = document.getElementById('msg-input').value;
-            if (!text.trim()) return;
-
-            const payload = { sender: user, text: text, channel: currentChannel };
+        async function checkSession() {
             try {
-                await fetch("/broadcast-peer", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                document.getElementById('msg-input').value = "";
-                fetchMessages(); // Cập nhật lại list tin sau khi gửi
-            } catch (error) {
-                console.error("Lỗi khi gửi:", error);
+                const res = await fetch('/get-session-info');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    myUsername = data.username;
+                    document.getElementById('my-username').innerText = "Chào, " + myUsername;
+                    return true;
+                }
+            } catch(e) {}
+            window.location.href = '/login.html';
+            return false;
+        }
+
+        async function fetchActivePeers() {
+            try {
+                const res = await fetch('/get-peers', { cache: 'no-store' });
+                const data = await res.json();
+                if (data.peers && Object.keys(data.peers).length > 0) {
+                    peersData = data.peers; 
+                    renderPeerList(peersData);
+                }
+            } catch (e) {
+                console.log("Tracker Offline - Chế độ P2P trực tiếp");
             }
         }
 
-        document.getElementById("msg-input").addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                sendBroadcast();
+        function renderPeerList(peers) {
+            const list = document.getElementById('peer-list');
+            const globalRoom = document.getElementById('global-room'); 
+            
+            list.innerHTML = ""; 
+            if (globalRoom) list.appendChild(globalRoom); 
+
+            let count = 0;
+            for (const [uname, info] of Object.entries(peers)) {
+                if (uname === myUsername) continue; 
+                count++;
+
+                const li = document.createElement('li');
+                li.className = 'peer-item';
+                li.id = 'peer-' + uname;
+                if (currentTargetPeer === uname && !isGroupMode) li.classList.add('active');
+                
+                li.innerHTML = `<div class="status-dot"></div>${uname}`;
+                li.onclick = () => selectPeer(uname, info, li);
+                list.appendChild(li);
             }
+            if(count === 0) {
+                const emptyLi = document.createElement('li');
+                emptyLi.style = "padding: 15px; text-align: center; color: #888;";
+                emptyLi.innerText = "Chưa có ai online";
+                list.appendChild(emptyLi);
+            }
+            
+            // Render xong thì vẽ lại các chấm đỏ ngay lập tức (Chống nhấp nháy)
+            updateBadgesUI();
+        }
+
+        function selectPeer(uname, info, element) {
+            isGroupMode = false;
+            currentTargetPeer = uname;
+            
+            document.getElementById('chat-title').innerText = "Đang chat với: " + uname;
+            document.getElementById('msg-input').disabled = false;
+            document.getElementById('send-btn').disabled = false;
+            document.getElementById('msg-input').focus();
+            
+            document.querySelectorAll('.peer-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+            
+            // Xóa chấm đỏ & Đánh dấu đã đọc
+            hasNewMessage[uname] = false;
+            updateBadgesUI();
+            
+            fetch('/get-all-messages', {cache: 'no-store'}).then(res => res.json()).then(data => {
+                 if (data.status === 'success' && data.p2p[uname]) {
+                     readMessageCounts[uname] = data.p2p[uname].length;
+                 }
+            });
+            
+            document.getElementById('messages-container').innerHTML = "";
+            loadChatHistory();
+        }
+
+        function selectGroupChat() {
+            isGroupMode = true;
+            currentTargetPeer = "#Chung";
+            
+            document.getElementById('chat-title').innerText = "Kênh Chat Chung";
+            document.getElementById('msg-input').disabled = false;
+            document.getElementById('send-btn').disabled = false;
+            document.getElementById('msg-input').focus();
+            
+            document.querySelectorAll('.peer-item').forEach(el => el.classList.remove('active'));
+            const globalEl = document.getElementById('global-room');
+            if(globalEl) globalEl.classList.add('active');
+            
+            // Xóa chấm đỏ Kênh Chung & Đánh dấu đã đọc
+            hasNewMessage['global'] = false;
+            updateBadgesUI();
+            
+            fetch('/get-all-messages', {cache: 'no-store'}).then(res => res.json()).then(data => {
+                 if (data.status === 'success' && data.group) {
+                     readMessageCounts['global'] = data.group.length;
+                 }
+            });
+
+            document.getElementById('messages-container').innerHTML = "";
+            loadChatHistory();
+        }
+
+        async function checkNotifications() {
+            try {
+                const res = await fetch('/get-all-messages', { cache: 'no-store' });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    // Check kênh chung
+                    let gCount = data.group.length;
+                    if (isGroupMode) {
+                        readMessageCounts['global'] = gCount;
+                        hasNewMessage['global'] = false;
+                    } else if (gCount > (readMessageCounts['global'] || 0)) {
+                        hasNewMessage['global'] = true;
+                    }
+
+                    // Check chat riêng
+                    for (let user in data.p2p) {
+                        let pCount = data.p2p[user].length;
+                        if (currentTargetPeer === user && !isGroupMode) {
+                            readMessageCounts[user] = pCount;
+                            hasNewMessage[user] = false;
+                        } else if (pCount > (readMessageCounts[user] || 0)) {
+                            hasNewMessage[user] = true;
+                        }
+                    }
+                    updateBadgesUI();
+                }
+            } catch (e) {}
+        }
+        
+        function updateBadgesUI() {
+            // Cập nhật cho Kênh Chung
+            let globalEl = document.getElementById('global-room');
+            if (globalEl) {
+                if (hasNewMessage['global']) {
+                    if (!globalEl.innerHTML.includes('🔴')) {
+                        globalEl.innerHTML += ' <span style="color:red; font-size:12px;" class="noti-dot">🔴 Mới</span>';
+                    }
+                } else {
+                    globalEl.innerHTML = `<div class="status-dot" style="background:#007bff"></div><strong># Kênh Chung</strong>`;
+                }
+            }
+
+            // Cập nhật cho Chat riêng
+            for (let user in hasNewMessage) {
+                if (user === 'global') continue;
+                let el = document.getElementById('peer-' + user);
+                if (el) {
+                    if (hasNewMessage[user]) {
+                        if (!el.innerHTML.includes('🔴')) {
+                            el.innerHTML += ' <span style="color:red; font-size:12px;" class="noti-dot">🔴 Mới</span>';
+                        }
+                    } else {
+                        if (el.innerHTML.includes('🔴')) {
+                            el.innerHTML = `<div class="status-dot"></div>${user}`;
+                        }
+                    }
+                }
+            }
+        }
+        
+        setInterval(checkNotifications, 2500);
+
+        async function sendMessage() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = ""; 
+            
+            try {
+                if (isGroupMode) {
+                    await fetch('/frontend-broadcast', {
+                        method: 'POST',
+                        // Bổ sung sender để Backend không nhận nhầm người
+                        body: JSON.stringify({ message: text, peers: peersData, sender: myUsername })
+                    });
+                } else {
+                    const targetInfo = peersData[currentTargetPeer];
+                    await fetch('/frontend-send', {
+                        method: 'POST',
+                        // Bổ sung sender
+                        body: JSON.stringify({ target: targetInfo, target_username: currentTargetPeer, message: text, sender: myUsername })
+                    });
+                }
+                loadChatHistory();
+            } catch (e) {
+                appendMessage("sent", "❌ Lỗi mạng");
+            }
+        }
+
+        document.getElementById('send-btn').addEventListener('click', sendMessage);
+        document.getElementById('msg-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
         });
 
-        // Hàm tải tin nhắn cho kênh đang mở
-        async function fetchMessages() {
-            try {
-                const response = await fetch("/get-messages", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ channel: currentChannel })
-                });
-                const data = await response.json();
-                const container = document.getElementById("message-container");
-                const username = document.getElementById('username').value;
-                
-                if (data.messages.length === lastMessageCount) return; 
-
-                // Hiệu ứng nhấp nháy title khi có tin mới ở kênh đang mở
-                if (lastMessageCount > 0) { 
-                    document.title = "(Có tin nhắn mới!) Hybrid Chat";
-                    setTimeout(() => { document.title = "Hybrid Chat (Client-Server & P2P)"; }, 3000);
-                }
-
-                container.innerHTML = "";
-                data.messages.forEach(msg => {
-                    const isMe = msg.sender === username ? "me" : "";
-                    container.innerHTML += `<div class="msg-box ${isMe}"><b>${msg.sender}</b>: ${msg.text}</div>`;
-                });
-
-                lastMessageCount = data.messages.length;
-                knownMessageCounts[currentChannel] = lastMessageCount; // Đồng bộ số đếm tin
-                container.scrollTop = container.scrollHeight; 
-            } catch (error) {
-                console.error("Lỗi đồng bộ:", error);
-            }
-        }
-
-        // Hàm kiểm tra ngầm các kênh không được mở để bật dấu chấm
-        async function checkNotifications() {
-            const channelList = ['general', 'hcmut'];
+        async function loadChatHistory() {
+            if (!currentTargetPeer) return;
             
-            for (let ch of channelList) {
-                // Bỏ qua kênh đang chat vì nó đã được cập nhật bởi fetchMessages
-                if (ch === currentChannel) {
-                    knownMessageCounts[ch] = lastMessageCount > 0 ? lastMessageCount : knownMessageCounts[ch];
-                    continue; 
-                }
+            const url = isGroupMode ? '/get-group-history' : '/get-chat-history';
+            const options = isGroupMode ? { method: 'GET', cache: 'no-store' } : {
+                method: 'POST',
+                body: JSON.stringify({ target_username: currentTargetPeer })
+            };
 
-                try {
-                    const response = await fetch("/get-messages", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ channel: ch })
-                    });
-                    const data = await response.json();
-                    const totalMessages = data.messages.length;
-
-                    const dotEl = document.querySelector(`#btn-${ch} .notification-dot`);
-                    
-                    // Nếu số lượng tin lớn hơn mốc đã biết, hiện chấm đỏ
-                    if (totalMessages > knownMessageCounts[ch]) {
-                        if(dotEl) dotEl.style.display = "inline-block";
-                    }
-                    
-                    knownMessageCounts[ch] = totalMessages;
-                } catch (error) {
-                    console.error("Lỗi check thông báo kênh", ch, error);
-                }
-            }
-        }
-
-        setInterval(fetchMessages, 2000); // Tải tin nhắn kênh hiện tại mỗi 2s
-        setInterval(checkNotifications, 3000); // Kiểm tra chấm đỏ các kênh khác mỗi 3s
-        
-        async function registerPeer() {
             try {
-                // Backend tự tạo Socket TCP báo danh lên Tracker
-                await fetch("/local-register", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({})
-                });
-                console.log("Đã yêu cầu Backend đăng ký với Tracker thành công!");
-            } catch (error) {
-                console.error("Lỗi đăng ký peer:", error);
-            }
+                const res = await fetch(url, options);
+                const data = await res.json();
+                
+                const container = document.getElementById('messages-container');
+                const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 1;
+                
+                container.innerHTML = "";
+                if (data.messages) {
+                    data.messages.forEach(m => {
+                        const type = (m.from === "me" || m.from === myUsername) ? "sent" : "recv";
+                        const senderLabel = (isGroupMode && type === "recv") ? `<span class="sender-name">${m.from}</span>` : "";
+                        appendMessage(type, senderLabel + m.text);
+                    });
+                }
+                
+                if (isScrolledToBottom) container.scrollTop = container.scrollHeight;
+            } catch(e) {}
         }
 
-        // Khởi động
-        registerPeer();
+        function appendMessage(type, text) {
+            const container = document.getElementById('messages-container');
+            const div = document.createElement('div');
+            div.className = "msg " + type;
+            div.innerHTML = text; 
+            container.appendChild(div);
+        }
+
+        async function logout() {
+            try {
+                // Gọi API dọn dẹp biến logged_in_users ở Backend để giải phóng cổng
+                await fetch('/logout', {
+                    method: 'POST',
+                    body: JSON.stringify({ username: myUsername })
+                });
+            } catch (e) {
+                console.log("Lỗi khi đăng xuất");
+            }
+            // Chuyển hướng về trang đăng nhập
+            window.location.href = '/login.html';
+        }
+
+        checkSession().then(isValid => {
+            if(isValid) {
+                fetch('/local-register', { method: 'POST', body: JSON.stringify({username: myUsername}) });
+                fetchActivePeers();
+                
+                setInterval(fetchActivePeers, 3000);
+                setInterval(loadChatHistory, 1000); 
+            }
+        });
     </script>
 </body>
 </html>

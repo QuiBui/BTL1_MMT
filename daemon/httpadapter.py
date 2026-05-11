@@ -134,16 +134,49 @@ class HttpAdapter:
         resp = self.response
 
         addr = writer.get_extra_info("peername")
-        print("[HttpAdapter] Invoke handle_client_coroutine connection {})".format(addr))
+        print("[HttpAdapter] Invoke handle_client_coroutine connection {}".format(addr))
 
-        # 1. Đọc dữ liệu. Nếu nhận chuỗi rỗng (Client ngắt mạng) -> Đóng kết nối
-        msg = await reader.read(1024)
-        if not msg:
+        try:
+            # Bước 1: Đọc phần Header trước (Dấu hiệu kết thúc header là \r\n\r\n)
+            header_bytes = await reader.readuntil(b'\r\n\r\n')
+        except asyncio.exceptions.IncompleteReadError:
+            # Client đóng kết nối giữa chừng trước khi gửi xong header
             writer.close()
             return False
 
-        # 2. Truyền self.routes thay vì routes={} như code cũ
-        req.prepare(msg.decode("utf-8"), routes=self.routes)
+        if not header_bytes:
+            writer.close()
+            return False
+
+        # Bước 2: Phân tích Header để tìm Content-Length
+        header_str = header_bytes.decode('utf-8', errors='ignore')
+        content_length = 0
+        
+        # Duyệt từng dòng header để tìm độ dài của Body
+        for line in header_str.split('\r\n'):
+            if line.lower().startswith('content-length:'):
+                try:
+                    content_length = int(line.split(':')[1].strip())
+                except ValueError:
+                    content_length = 0
+                break
+
+        # Bước 3: Đọc phần Body (nếu có) dựa trên Content-Length
+        body_bytes = b""
+        if content_length > 0:
+            try:
+                # Đọc chính xác số byte mà Header thông báo
+                body_bytes = await reader.readexactly(content_length)
+            except asyncio.exceptions.IncompleteReadError as e:
+                # Nếu mạng rớt giữa chừng, lấy những gì đã đọc được
+                body_bytes = e.partial
+
+        # Bước 4: Gộp Header và Body lại thành một HTTP Message hoàn chỉnh
+        msg_bytes = header_bytes + body_bytes
+        msg_str = msg_bytes.decode("utf-8", errors='ignore')
+
+        # Bắt đầu truyền cho Request object xử lý
+        req.prepare(msg_str, routes=self.routes)
 
         # 3. Chặn lỗi Request không hợp lệ (path = None)
         if not req.path:
@@ -160,7 +193,6 @@ class HttpAdapter:
         response = resp.build_response(req, envelop_content)
 
         # Send all the response asynchronously
-         
         writer.write(response)
         await writer.drain()
         writer.close()
